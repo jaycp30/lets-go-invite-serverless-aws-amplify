@@ -47,7 +47,6 @@ async function generateInvite() {
   const activity = document.getElementById('activity').value.trim();
   const date     = document.getElementById('date').value;
   const note     = document.getElementById('note').value.trim();
-  const provider = document.querySelector('input[name="provider"]:checked').value;
 
   if (!name || !activity || !date) {
     alert('Please fill in name, activity, and date.');
@@ -62,7 +61,7 @@ async function generateInvite() {
     const res = await fetch(`${API_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'invite', name, activity, date, note, provider }),
+      body: JSON.stringify({ type: 'invite', name, activity, date, note }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -193,6 +192,9 @@ function dodgeNo() {
     newTop  = y1 + Math.random() * Math.max(0, y2 - y1);
   }
 
+  // Clear CSS bottom/right so top/left don't conflict with them
+  btn.style.bottom = 'auto';
+  btn.style.right  = 'auto';
   btn.style.left = `${Math.max(x1, Math.min(x2, newLeft))}px`;
   btn.style.top  = `${Math.max(y1, Math.min(y2, newTop))}px`;
 

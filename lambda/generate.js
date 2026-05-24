@@ -29,13 +29,13 @@ exports.handler = async (event) => {
     }
 
     // type === 'invite': run all generations in parallel
-    const { name, activity, date, note, provider } = body;
+    const { name, activity, date, note } = body;
     if (!name || !activity || !date) {
       return respond(400, { error: 'name, activity, and date are required' });
     }
 
-    const [message, mascotIntro, buttonAnimCSS, confettiCSS] = await Promise.all([
-      generateInviteMessage(name, activity, date, note, provider),
+    const [[message, usedProvider], mascotIntro, buttonAnimCSS, confettiCSS] = await Promise.all([
+      generateInviteMessage(name, activity, date, note),
       generateMascotIntro(name, activity),
       generateButtonAnimCSS(activity),
       generateConfettiCSS(activity),
@@ -46,7 +46,7 @@ exports.handler = async (event) => {
       mascotIntro,
       buttonAnimCSS,
       confettiCSS,
-      provider: provider === 'openai' ? 'openai' : 'claude',
+      provider: usedProvider,
     });
   } catch (err) {
     console.error(err);
@@ -56,7 +56,7 @@ exports.handler = async (event) => {
 
 // ── Invite message ────────────────────────────────────────────────────────────
 
-async function generateInviteMessage(name, activity, date, note, provider) {
+async function generateInviteMessage(name, activity, date, note) {
   const prompt = `Create a sweet, playful date invitation message (2-3 sentences) for:
 - Recipient: ${name}
 - Activity: ${activity}
@@ -64,9 +64,14 @@ async function generateInviteMessage(name, activity, date, note, provider) {
 ${note ? `- Personal note: ${note}` : ''}
 Write only the invitation body — no greeting, no sign-off, no quotes. Warm, charming, ends with excitement. No heart or love emojis.`;
 
-  return provider === 'openai'
-    ? generateWithOpenAI(prompt)
-    : generateWithClaude(prompt);
+  try {
+    const text = await generateWithOpenAI(prompt);
+    return [text, 'openai'];
+  } catch (err) {
+    console.warn('OpenAI failed, falling back to Claude Haiku:', err.message);
+    const text = await generateWithClaude(prompt);
+    return [text, 'claude'];
+  }
 }
 
 // ── Mascot intro line ─────────────────────────────────────────────────────────
