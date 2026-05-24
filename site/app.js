@@ -1,3 +1,7 @@
+const APP_VERSION = '202605241520';
+window.UNHINGED_CALENDY_VERSION = APP_VERSION;
+console.info(`[Unhinged Calendy] app.js ${APP_VERSION}`);
+
 const API_URL = (window.CONFIG?.apiUrl || '').replace(/\/$/, '');
 
 // ── Fallbacks (used when no API_URL or as instant response) ──────────────────
@@ -104,7 +108,7 @@ function copyShareLink() {
   const { name, activity, date, message, mascotIntro, buttonAnimCSS, confettiCSS } = lastGenerated;
   if (!message) return;
 
-  const params = new URLSearchParams({ name, activity, date, message });
+  const params = new URLSearchParams({ appv: APP_VERSION, name, activity, date, message });
   if (mascotIntro)   params.set('intro',   mascotIntro);
   if (buttonAnimCSS) params.set('btnAnim', buttonAnimCSS);
 
