@@ -156,23 +156,45 @@ if (document.getElementById('inviteName')) {
 
 let bubbleTimer = null;
 let isFetching  = false;
+let lastDodgeAt = 0;
 
 function dodgeNo() {
   const btn = document.getElementById('noButton');
   if (!btn) return;
 
-  // Constrain dodge to the container width, but clamp vertically to visible viewport
+  // Debounce: skip if called again within 400ms (prevents mobile double-fire from mouseover+click)
+  const now = Date.now();
+  if (now - lastDodgeAt < 400) return;
+  lastDodgeAt = now;
+
+  // Bounds: container width horizontally, visible viewport vertically
   const container = document.querySelector('.container');
-  const pad = 12;
+  const pad = 16;
   const rect = container ? container.getBoundingClientRect() : null;
   const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const vh = (window.visualViewport?.height) || window.innerHeight;
   const x1 = rect ? rect.left  + pad : vw * 0.08;
   const x2 = rect ? rect.right - btn.offsetWidth  - pad : vw * 0.92 - btn.offsetWidth;
   const y1 = pad;
   const y2 = vh - btn.offsetHeight - pad;
-  btn.style.left = `${x1 + Math.random() * Math.max(0, x2 - x1)}px`;
-  btn.style.top  = `${y1 + Math.random() * Math.max(0, y2 - y1)}px`;
+
+  // Limit travel: move at most 35% of the available range from current position
+  const curLeft = parseFloat(btn.style.left);
+  const curTop  = parseFloat(btn.style.top);
+  const hasPos  = !isNaN(curLeft) && !isNaN(curTop);
+  const maxStep = Math.min(x2 - x1, y2 - y1) * 0.35;
+
+  let newLeft, newTop;
+  if (hasPos) {
+    newLeft = curLeft + (Math.random() - 0.5) * 2 * maxStep;
+    newTop  = curTop  + (Math.random() - 0.5) * 2 * maxStep;
+  } else {
+    newLeft = x1 + Math.random() * Math.max(0, x2 - x1);
+    newTop  = y1 + Math.random() * Math.max(0, y2 - y1);
+  }
+
+  btn.style.left = `${Math.max(x1, Math.min(x2, newLeft))}px`;
+  btn.style.top  = `${Math.max(y1, Math.min(y2, newTop))}px`;
 
   // Replay the escape animation
   btn.style.animation = 'none';
