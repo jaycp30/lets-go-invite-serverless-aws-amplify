@@ -14,7 +14,8 @@ const MASCOT_SYSTEM =
   'Keep every response very short (max 10 words + 1 emoji). Output only the text, no quotes.';
 
 exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
+  const method = event.httpMethod || event.requestContext?.http?.method || '';
+  if (method === 'OPTIONS') {
     return { statusCode: 200, headers: CORS_HEADERS, body: '' };
   }
 
@@ -130,7 +131,7 @@ async function generateButtonAnimCSS(activity) {
     max_tokens: 128,
     messages: [{ role: 'user', content: prompt }],
   });
-  return res.content[0].text.trim();
+  return stripFences(res.content[0].text.trim());
 }
 
 // ── Confetti celebration CSS ──────────────────────────────────────────────────
@@ -148,7 +149,7 @@ async function generateConfettiCSS(activity) {
     max_tokens: 128,
     messages: [{ role: 'user', content: prompt }],
   });
-  return res.content[0].text.trim();
+  return stripFences(res.content[0].text.trim());
 }
 
 // ── AI helpers ────────────────────────────────────────────────────────────────
@@ -184,8 +185,12 @@ async function generateWithOpenAI(prompt) {
   return res.choices[0].message.content.trim();
 }
 
+function stripFences(text) {
+  return text.replace(/^```[\w]*\n?/m, '').replace(/```\s*$/m, '').trim();
+}
+
 function sanitizeSvg(svg) {
-  return svg
+  return stripFences(svg)
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/\son\w+="[^"]*"/gi, '')
     .replace(/\son\w+='[^']*'/gi, '');
