@@ -1,6 +1,6 @@
-const APP_VERSION = '202605241520';
-window.UNHINGED_CALENDY_VERSION = APP_VERSION;
-console.info(`[Unhinged Calendy] app.js ${APP_VERSION}`);
+const APP_VERSION = '202605241545';
+window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
+console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
 const API_URL = (window.CONFIG?.apiUrl || '').replace(/\/$/, '');
 
@@ -129,6 +129,12 @@ function formatDate(raw) {
   });
 }
 
+// ── No button state ──────────────────────────────────────────────────────────
+
+let bubbleTimer = null;
+let isFetching  = false;
+let lastDodgeAt = 0;
+
 // ── Invite page (invite.html) ─────────────────────────────────────────────────
 
 if (document.getElementById('inviteName')) {
@@ -174,10 +180,6 @@ if (document.getElementById('inviteName')) {
 }
 
 // ── No button — dodge + CSS animation + mascot reaction ──────────────────────
-
-let bubbleTimer = null;
-let isFetching  = false;
-let lastDodgeAt = 0;
 
 function dodgeNo() {
   const btn = document.getElementById('noButton');
