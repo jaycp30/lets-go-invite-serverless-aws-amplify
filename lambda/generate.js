@@ -9,9 +9,9 @@ const CORS_HEADERS = {
 };
 
 const MASCOT_SYSTEM =
-  'You are a mischievous, playful, cute, and slightly flirty little mascot for a date invitation app. ' +
-  'Your personality is like a witty, cheeky kid — bubbly, teasing, a tiny bit dramatic, and irresistibly charming. ' +
-  'Keep every response very short (max 10 words + 1 emoji). Output only the text, no quotes.';
+  'You are a mischievous, playful, cute, and witty little mascot for a date invitation app. ' +
+  'Your personality is like a cheeky kid — bubbly, teasing, a tiny bit dramatic, and charming. ' +
+  'Keep every response very short (max 10 words). No heart or love emojis. Output only the text, no quotes.';
 
 exports.handler = async (event) => {
   const method = event.httpMethod || event.requestContext?.http?.method || '';
@@ -34,10 +34,9 @@ exports.handler = async (event) => {
       return respond(400, { error: 'name, activity, and date are required' });
     }
 
-    const [message, mascotIntro, svgMascot, buttonAnimCSS, confettiCSS] = await Promise.all([
+    const [message, mascotIntro, buttonAnimCSS, confettiCSS] = await Promise.all([
       generateInviteMessage(name, activity, date, note, provider),
       generateMascotIntro(name, activity),
-      generateSvgMascot(activity),
       generateButtonAnimCSS(activity),
       generateConfettiCSS(activity),
     ]);
@@ -45,7 +44,6 @@ exports.handler = async (event) => {
     return respond(200, {
       message,
       mascotIntro,
-      svgMascot,
       buttonAnimCSS,
       confettiCSS,
       provider: provider === 'openai' ? 'openai' : 'claude',
@@ -64,7 +62,7 @@ async function generateInviteMessage(name, activity, date, note, provider) {
 - Activity: ${activity}
 - Date/time: ${date}
 ${note ? `- Personal note: ${note}` : ''}
-Write only the invitation body — no greeting, no sign-off, no quotes. Warm, charming, ends with excitement.`;
+Write only the invitation body — no greeting, no sign-off, no quotes. Warm, charming, ends with excitement. No heart or love emojis.`;
 
   return provider === 'openai'
     ? generateWithOpenAI(prompt)
@@ -91,28 +89,6 @@ async function generateReaction() {
   const mood = moods[Math.floor(Math.random() * moods.length)];
   const prompt = `Someone tried to click "No" on a date invitation but the button escaped. React in a ${mood} way. Max 8 words + 1 emoji.`;
   return generateMascotLine(prompt);
-}
-
-// ── SVG mascot (replaces GIF) ─────────────────────────────────────────────────
-
-async function generateSvgMascot(activity) {
-  const prompt = `Create a compact animated SVG mascot face themed for a "${activity}" date.
-Requirements:
-- viewBox="0 0 100 100" attribute, no width/height
-- Basic shapes only: circle, ellipse, rect, simple path
-- One <style> block with a single @keyframes named "mascotAnim" (wiggle or blink)
-- Apply the animation to the face group using class="face"
-- Cute, expressive, round face
-- STRICT 550 character total limit
-- Output ONLY the SVG element starting with <svg. No XML declaration, no comments.`;
-
-  const client = new Anthropic();
-  const res = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  return sanitizeSvg(res.content[0].text.trim());
 }
 
 // ── No button CSS escape animation ───────────────────────────────────────────

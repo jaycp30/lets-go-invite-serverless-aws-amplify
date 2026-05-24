@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>You've Got an Invite 💝</title>
+  <title>You've Got an Invite</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -22,14 +22,15 @@
         </div>
       </div>
 
-      <!-- Mascot: SVG replaces the GIF, speech bubble sits above -->
       <div class="mascot-area">
         <div class="speech-bubble" id="speechBubble"></div>
-        <div class="mascot-svg" id="mascotSvg"></div>
+        <div class="gif-container">
+          <img src="https://media1.giphy.com/media/cLS1cfxvGOPVpf9g3y/giphy.gif" alt="mascot">
+        </div>
       </div>
 
       <div class="invite-buttons">
-        <button class="btn btn-yes" id="yesButton">Yes! 🎉</button>
+        <button class="btn btn-yes" id="yesButton">Yes!</button>
         <button class="btn btn-no" id="noButton" onmouseover="dodgeNo()" onclick="dodgeNo()">No</button>
       </div>
 
