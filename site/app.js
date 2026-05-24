@@ -1,4 +1,4 @@
-const APP_VERSION = '202605241630';
+const APP_VERSION = '202605241700';
 window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
 console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
