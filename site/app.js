@@ -108,7 +108,6 @@ function copyShareLink() {
   const params = new URLSearchParams({ name, activity, date, message });
   if (mascotIntro)   params.set('intro',   mascotIntro);
   if (buttonAnimCSS) params.set('btnAnim', buttonAnimCSS);
-  if (confettiCSS)   params.set('confetti', confettiCSS);
 
   const url = `${window.location.origin}/invite.html?${params.toString()}`;
 
@@ -151,16 +150,6 @@ if (document.getElementById('inviteName')) {
   // Show mascot intro bubble on load
   if (intro) showSpeechBubble(intro, 4000);
 
-  // Yes button — passes confetti CSS to yes.html
-  const yesBtn = document.getElementById('yesButton');
-  if (yesBtn) {
-    yesBtn.addEventListener('click', () => {
-      const yesParams = new URLSearchParams();
-      if (confetti) yesParams.set('confetti', confetti);
-      const yesUrl = confetti ? `yes.html?${yesParams.toString()}` : 'yes.html';
-      window.location.href = yesUrl;
-    });
-  }
 }
 
 // ── No button — dodge + CSS animation + mascot reaction ──────────────────────
