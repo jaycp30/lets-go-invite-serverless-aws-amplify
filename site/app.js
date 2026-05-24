@@ -149,6 +149,20 @@ if (document.getElementById('inviteName')) {
   // Show mascot intro bubble on load
   if (intro) showSpeechBubble(intro, 4000);
 
+  // Initialize No button: translate CSS bottom/right to top/left immediately
+  // so Firefox never sees conflicting offset properties, then bind events via JS.
+  const noBtn = document.getElementById('noButton');
+  if (noBtn) {
+    const vh = (window.visualViewport?.height) || window.innerHeight;
+    noBtn.style.bottom = 'auto';
+    noBtn.style.right  = 'auto';
+    noBtn.style.top    = `${vh - noBtn.offsetHeight - 24}px`;
+    noBtn.style.left   = `${window.innerWidth - noBtn.offsetWidth - 24}px`;
+    noBtn.addEventListener('mouseenter', dodgeNo);
+    noBtn.addEventListener('click', dodgeNo);
+    noBtn.addEventListener('touchstart', (e) => { e.preventDefault(); dodgeNo(); }, { passive: false });
+  }
+
 }
 
 // ── No button — dodge + CSS animation + mascot reaction ──────────────────────
