@@ -158,7 +158,11 @@ if (document.getElementById('inviteName')) {
     noBtn.style.right  = 'auto';
     noBtn.style.top    = `${vh - noBtn.offsetHeight - 24}px`;
     noBtn.style.left   = `${window.innerWidth - noBtn.offsetWidth - 24}px`;
+    noBtn.addEventListener('pointerenter', dodgeNo);
+    noBtn.addEventListener('pointerover', dodgeNo);
     noBtn.addEventListener('mouseenter', dodgeNo);
+    noBtn.addEventListener('mouseover', dodgeNo);
+    noBtn.addEventListener('pointerdown', dodgeNo);
     noBtn.addEventListener('click', dodgeNo);
     noBtn.addEventListener('touchstart', (e) => { e.preventDefault(); dodgeNo(); }, { passive: false });
   }
