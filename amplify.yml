@@ -4,7 +4,7 @@ frontend:
     build:
       commands:
         # Inject the API Gateway URL from the Amplify environment variable
-        - echo "window.CONFIG = { apiUrl: '${API_GATEWAY_URL}' };" > site/config.js
+        - "echo \"window.CONFIG = { apiUrl: '${API_GATEWAY_URL}' };\" > site/config.js"
   artifacts:
     baseDirectory: site
     files:
