@@ -74,6 +74,10 @@ flowchart LR
 7. `/yes.html` sends an `acceptInvite` request to Lambda.
 8. Lambda sends the sender an `.ics` calendar invite email through Amazon SES.
 
+### AI Model Roles
+
+The application uses OpenAI's `gpt-4o-mini` as the primary generator for the personalised invitation message. Anthropic's Claude Haiku supports the app's interactive experience by generating mascot copy and activity-themed animation content, while also providing a fallback for invitation-message generation if the OpenAI request is unavailable or fails.
+
 ## AWS Services In This Project
 
 ### What Is AWS Amplify?
