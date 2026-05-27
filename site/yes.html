@@ -32,12 +32,16 @@
           <button class="btn btn-primary" id="recipientInviteSubmit" type="submit">Send my invite</button>
           <p class="recipient-invite-status" id="recipientInviteStatus" aria-live="polite"></p>
         </form>
+        <div class="recipient-invite-complete" id="recipientInviteComplete" hidden aria-live="polite">
+          <p class="recipient-invite-complete-title">You're all set!</p>
+          <p class="recipient-invite-status success" id="recipientInviteConfirmation"></p>
+        </div>
       </section>
     </div>
   </div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260527-recipient-invite"></script>
+  <script src="./app.js?v=20260527-recipient-invite-complete"></script>
   <script>
     const obs = new IntersectionObserver((entries) => {
       entries.forEach(e => {

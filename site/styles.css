@@ -254,6 +254,15 @@ textarea {
 
 .calendar-status.error { color: #9e3f3f; }
 
+.recipient-invite-card [hidden] {
+  display: none !important;
+}
+
+.recipient-invite-card.is-complete .recipient-invite-question,
+.recipient-invite-card.is-complete .recipient-invite-copy {
+  display: none;
+}
+
 .recipient-invite-card {
   background: var(--card);
   border: 1px solid var(--border-light);
@@ -307,6 +316,23 @@ textarea {
 .recipient-invite-status.success { color: var(--accent); }
 
 .recipient-invite-status.error { color: #9e3f3f; }
+
+.recipient-invite-complete {
+  padding: 4px 0;
+  text-align: center;
+}
+
+.recipient-invite-complete-title {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.recipient-invite-complete .recipient-invite-status {
+  margin-top: 0;
+}
 
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
 

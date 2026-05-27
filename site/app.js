@@ -1,4 +1,4 @@
-const APP_VERSION = '20260527-recipient-invite';
+const APP_VERSION = '20260527-recipient-invite-complete';
 window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
 console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
@@ -459,7 +459,11 @@ async function sendRecipientInvite(inviteId) {
   const emailInput = document.getElementById('recipientEmail');
   const submitButton = document.getElementById('recipientInviteSubmit');
   const status = document.getElementById('recipientInviteStatus');
-  if (!emailInput || !submitButton || !status) return;
+  const form = document.getElementById('recipientInviteForm');
+  const confirmation = document.getElementById('recipientInviteConfirmation');
+  const complete = document.getElementById('recipientInviteComplete');
+  const card = document.getElementById('recipientInviteCard');
+  if (!emailInput || !submitButton || !status || !form || !confirmation || !complete || !card) return;
 
   const recipientEmail = emailInput.value.trim();
   if (!recipientEmail || !emailInput.checkValidity()) {
@@ -485,14 +489,14 @@ async function sendRecipientInvite(inviteId) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-    status.textContent = data.alreadySent
+    confirmation.textContent = data.alreadySent
       ? 'Your calendar invite has already been sent.'
       : data.sending
         ? 'Your calendar invite is already being sent.'
         : 'Your calendar invite is on its way!';
-    status.classList.add('success');
-    emailInput.disabled = true;
-    submitButton.hidden = true;
+    form.hidden = true;
+    card.classList.add('is-complete');
+    complete.hidden = false;
   } catch (err) {
     console.error(err);
     status.textContent = err.message
