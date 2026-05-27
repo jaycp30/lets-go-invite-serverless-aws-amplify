@@ -234,7 +234,7 @@ ACCEPTANCE_LOCK_SECONDS=60
 ANONYMOUS_INVITE_DAILY_LIMIT=3
 ANONYMOUS_RATE_LIMIT_SALT=generate-a-long-random-secret
 TURNSTILE_SECRET_KEY=your-private-turnstile-secret-key
-TURNSTILE_EXPECTED_HOSTNAMES=main.d3uvea0sx512tw.amplifyapp.com
+TURNSTILE_EXPECTED_HOSTNAMES=main.d23hnd7ddlxmg8.amplifyapp.com
 ```
 
 `AWS_BEARER_TOKEN_BEDROCK` is the Amazon Bedrock API key used for this exercise. For a longer-lived workload, prefer granting the Lambda execution role Bedrock invocation permissions instead of storing a long-term API key. `BEDROCK_CLAUDE_MODEL_ID` is optional and defaults to the global Claude Haiku 4.5 inference profile. `SES_CALENDAR_TIMEZONE` is optional. The frontend also passes the sender's browser timezone when generating an invite.
