@@ -22,53 +22,7 @@ invite_Claude-exercise/
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph Browser
-    A["Sender opens index.html"]
-    B["Recipient opens invite.html"]
-    C["Recipient clicks Yes on yes.html"]
-  end
-
-  subgraph Amplify["AWS Amplify Hosting"]
-    D["Static site: HTML/CSS/JS"]
-    E["Build injects site/config.js"]
-  end
-
-  subgraph API["AWS API Gateway HTTP API"]
-    F["POST /generate"]
-  end
-
-  subgraph Lambda["AWS Lambda: invite-generate"]
-    G["AI invite generation + inviteId"]
-    H["getInvite / acceptInvite handlers"]
-  end
-
-  subgraph AWS["AWS data and messaging"]
-    I["Amazon DynamoDB: invite-records"]
-    J["Amazon SES"]
-    K["Sender email inbox / calendar app"]
-  end
-
-  subgraph External["AI services"]
-    L["OpenAI / Amazon Bedrock (Claude)"]
-  end
-
-  A --> D
-  B --> D
-  C --> D
-  D --> E
-  A --> F
-  B --> F
-  C --> F
-  F --> G
-  F --> H
-  G --> L
-  G --> I
-  H --> I
-  H --> J
-  J --> K
-```
+See [architecture.drawio](architecture.drawio) for the interactive diagram — GitHub renders `.drawio` files natively when you navigate to the file.
 
 ## How The App Works
 

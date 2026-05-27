@@ -1,0 +1,157 @@
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- Browser group -->
+    <mxCell id="grp-browser" value="Browser" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="30" y="80" width="180" height="300" as="geometry" />
+    </mxCell>
+    <mxCell id="node-sender" value="Sender&#xa;index.html" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="grp-browser">
+      <mxGeometry x="20" y="50" width="140" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="node-recipient" value="Recipient&#xa;invite.html" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="grp-browser">
+      <mxGeometry x="20" y="130" width="140" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="node-yes" value="Recipient&#xa;yes.html" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="grp-browser">
+      <mxGeometry x="20" y="210" width="140" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- Amplify -->
+    <mxCell id="grp-amplify" value="AWS Amplify Hosting" style="swimlane;startSize=30;fillColor=#FFE6CC;strokeColor=#d79b00;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="270" y="140" width="185" height="110" as="geometry" />
+    </mxCell>
+    <mxCell id="node-static" value="Static site&#xa;HTML / CSS / JS&#xa;config.js injected at build" style="rounded=1;whiteSpace=wrap;fillColor=#FFE6CC;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="grp-amplify">
+      <mxGeometry x="15" y="38" width="155" height="62" as="geometry" />
+    </mxCell>
+
+    <!-- Cloudflare group -->
+    <mxCell id="grp-cf" value="Cloudflare" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="30" width="190" height="200" as="geometry" />
+    </mxCell>
+    <mxCell id="node-tw" value="Turnstile Widget" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="grp-cf">
+      <mxGeometry x="20" y="48" width="150" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="node-tv" value="Siteverify API" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="grp-cf">
+      <mxGeometry x="20" y="125" width="150" height="55" as="geometry" />
+    </mxCell>
+
+    <!-- API Gateway -->
+    <mxCell id="node-apigw" value="AWS API Gateway&#xa;POST /generate" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="520" y="310" width="190" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- Lambda group -->
+    <mxCell id="grp-lambda" value="AWS Lambda: invite-generate" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="775" y="80" width="220" height="300" as="geometry" />
+    </mxCell>
+    <mxCell id="node-gen" value="type=invite&#xa;verify token → rate-limit&#xa;→ AI generate → store" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="grp-lambda">
+      <mxGeometry x="15" y="45" width="190" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="node-get" value="type=getInvite&#xa;read public invite fields" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="grp-lambda">
+      <mxGeometry x="15" y="130" width="190" height="58" as="geometry" />
+    </mxCell>
+    <mxCell id="node-accept" value="type=acceptInvite&#xa;lock → SES send → mark SENT" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="grp-lambda">
+      <mxGeometry x="15" y="203" width="190" height="70" as="geometry" />
+    </mxCell>
+
+    <!-- Data group -->
+    <mxCell id="grp-data" value="AWS Data &amp; Messaging" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="80" width="190" height="300" as="geometry" />
+    </mxCell>
+    <mxCell id="node-ddb" value="DynamoDB&#xa;invite-records&#xa;invite store + rate counters" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="grp-data">
+      <mxGeometry x="15" y="45" width="160" height="72" as="geometry" />
+    </mxCell>
+    <mxCell id="node-ses" value="Amazon SES" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="grp-data">
+      <mxGeometry x="15" y="135" width="160" height="55" as="geometry" />
+    </mxCell>
+    <mxCell id="node-inbox" value="Sender inbox / calendar" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="grp-data">
+      <mxGeometry x="15" y="215" width="160" height="60" as="geometry" />
+    </mxCell>
+
+    <!-- AI group -->
+    <mxCell id="grp-ai" value="AI Services" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1310" y="80" width="210" height="215" as="geometry" />
+    </mxCell>
+    <mxCell id="node-oai" value="OpenAI gpt-4o-mini&#xa;invite message (primary)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="grp-ai">
+      <mxGeometry x="15" y="45" width="180" height="60" as="geometry" />
+    </mxCell>
+    <mxCell id="node-bdr" value="Amazon Bedrock — Claude Haiku 4.5&#xa;mascot &amp; CSS (always)&#xa;invite message (fallback)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="grp-ai">
+      <mxGeometry x="15" y="122" width="180" height="75" as="geometry" />
+    </mxCell>
+
+    <!-- Edges: Browser pages served from Amplify -->
+    <mxCell id="e-sender-static" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-sender" target="node-static" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-recipient-static" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-recipient" target="node-static" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-yes-static" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-yes" target="node-static" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Sender <-> Turnstile widget -->
+    <mxCell id="e-sender-tw" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-sender" target="node-tw" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-tw-sender" value="token" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-tw" target="node-sender" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Browser -> API Gateway -->
+    <mxCell id="e-sender-apigw" value="type=invite + token" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-sender" target="node-apigw" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-recipient-apigw" value="type=getInvite" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-recipient" target="node-apigw" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-yes-apigw" value="type=acceptInvite" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-yes" target="node-apigw" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- API Gateway -> Lambda handlers -->
+    <mxCell id="e-apigw-gen" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-apigw" target="node-gen" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-apigw-get" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-apigw" target="node-get" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-apigw-accept" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-apigw" target="node-accept" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- gen -> Siteverify -->
+    <mxCell id="e-gen-tv" value="verify token" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-gen" target="node-tv" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Lambda -> DynamoDB -->
+    <mxCell id="e-gen-ddb" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-gen" target="node-ddb" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-get-ddb" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-get" target="node-ddb" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-accept-ddb" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-accept" target="node-ddb" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- gen -> AI services -->
+    <mxCell id="e-gen-oai" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-gen" target="node-oai" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-gen-bdr" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-gen" target="node-bdr" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- acceptInvite -> SES -> inbox -->
+    <mxCell id="e-accept-ses" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-accept" target="node-ses" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="e-ses-inbox" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="node-ses" target="node-inbox" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>
