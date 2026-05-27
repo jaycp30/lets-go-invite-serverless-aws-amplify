@@ -1,4 +1,4 @@
-const APP_VERSION = '202605241725';
+const APP_VERSION = '202605271200';
 window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
 console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
@@ -66,18 +66,25 @@ async function generateInvite() {
     const res = await fetch(`${API_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'invite', name, activity, date, note }),
+      body: JSON.stringify({
+        type: 'invite',
+        senderEmail,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        name,
+        activity,
+        date,
+        note,
+      }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
+    if (!data.inviteId) {
+      throw new Error('Invite storage is not available yet.');
+    }
     lastGenerated = {
-      senderEmail, name, activity, date,
-      senderTz:       Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      message:        data.message,
-      mascotIntro:    data.mascotIntro,
-      buttonAnimCSS:  data.buttonAnimCSS  || FALLBACK_BUTTON_ANIM,
-      confettiCSS:    data.confettiCSS    || FALLBACK_CONFETTI_CSS,
+      inviteId: data.inviteId,
+      message: data.message,
     };
 
     showPreview(data.message, activity, date, data.provider);
@@ -107,14 +114,10 @@ function showPreview(message, activity, date, provider) {
 }
 
 function copyShareLink() {
-  const { senderEmail, senderTz, name, activity, date, message, mascotIntro, buttonAnimCSS, confettiCSS } = lastGenerated;
-  if (!message) return;
+  const { inviteId } = lastGenerated;
+  if (!inviteId) return;
 
-  const params = new URLSearchParams({ appv: APP_VERSION, senderEmail, senderTz, name, activity, date, message });
-  if (mascotIntro)   params.set('intro',   mascotIntro);
-  if (buttonAnimCSS) params.set('btnAnim', buttonAnimCSS);
-
-  const url = `${window.location.origin}/invite.html?${params.toString()}`;
+  const url = `${window.location.origin}/invite.html?id=${encodeURIComponent(inviteId)}`;
 
   navigator.clipboard.writeText(url).then(() => {
     shareBtn.textContent = 'Link Copied!';
@@ -140,31 +143,48 @@ let lastDodgeAt = 0;
 // ── Invite page (invite.html) ─────────────────────────────────────────────────
 
 if (document.getElementById('inviteName')) {
-  const params   = new URLSearchParams(window.location.search);
-  const name     = params.get('name')     || 'You';
-  const activity = params.get('activity') || 'something fun';
-  const date     = params.get('date')     || '';
-  const message  = params.get('message')  || 'Would you like to join me for something special?';
-  const intro    = params.get('intro')    || null;
-  const btnAnim  = params.get('btnAnim')  || null;
-  const confetti = params.get('confetti') || null;
+  loadInvitePage();
+}
 
-  // Populate text content
-  document.getElementById('inviteName').textContent     = `Hey ${name}!`;
-  document.getElementById('inviteMessage').textContent  = message;
-  document.getElementById('inviteActivity').textContent = activity;
-  document.getElementById('inviteDate').textContent     = date ? formatDate(date) : '';
+async function loadInvitePage() {
+  const inviteId = new URLSearchParams(window.location.search).get('id');
+  const yesBtn = document.querySelector('.btn-yes');
+  const noBtn = document.getElementById('noButton');
+  if (yesBtn) yesBtn.style.visibility = 'hidden';
+  if (noBtn) noBtn.style.display = 'none';
 
-  // Inject No button escape animation
-  injectCSS(btnAnim || FALLBACK_BUTTON_ANIM);
+  if (!inviteId || !API_URL) {
+    showUnavailableInvite('This invitation is unavailable.');
+    return;
+  }
 
-  // Show mascot intro bubble on load
-  if (intro) showSpeechBubble(intro, 4000);
+  try {
+    const data = await fetchInvite(inviteId);
+    document.getElementById('inviteName').textContent     = `Hey ${data.recipientName || 'You'}!`;
+    document.getElementById('inviteMessage').textContent  = data.message;
+    document.getElementById('inviteActivity').textContent = data.activity;
+    document.getElementById('inviteDate').textContent     = data.date ? formatDate(data.date) : '';
 
+    injectCSS(data.buttonAnimCSS || FALLBACK_BUTTON_ANIM);
+    if (data.mascotIntro) showSpeechBubble(data.mascotIntro, 4000);
+
+    initializeNoButton();
+    if (yesBtn) {
+      yesBtn.href = `yes.html?id=${encodeURIComponent(inviteId)}`;
+      yesBtn.style.visibility = '';
+    }
+  } catch (err) {
+    console.error(err);
+    showUnavailableInvite(err.message || 'This invitation is unavailable.');
+  }
+}
+
+function initializeNoButton() {
   // Initialize No button: translate CSS bottom/right to top/left immediately
   // so Firefox never sees conflicting offset properties, then bind events via JS.
   const noBtn = document.getElementById('noButton');
   if (noBtn) {
+    noBtn.style.display = '';
     const vh = (window.visualViewport?.height) || window.innerHeight;
     noBtn.style.bottom = 'auto';
     noBtn.style.right  = 'auto';
@@ -178,14 +198,16 @@ if (document.getElementById('inviteName')) {
     noBtn.addEventListener('click', dodgeNo);
     noBtn.addEventListener('touchstart', (e) => { e.preventDefault(); dodgeNo(); }, { passive: false });
   }
+}
 
+function showUnavailableInvite(message) {
+  document.getElementById('inviteMessage').textContent = message;
+  document.getElementById('inviteActivity').textContent = '';
+  document.getElementById('inviteDate').textContent = '';
   const yesBtn = document.querySelector('.btn-yes');
-  if (yesBtn) {
-    const yesParams = new URLSearchParams(window.location.search);
-    yesParams.set('appv', APP_VERSION);
-    yesBtn.href = `yes.html?${yesParams.toString()}`;
-  }
-
+  if (yesBtn) yesBtn.style.display = 'none';
+  const noBtn = document.getElementById('noButton');
+  if (noBtn) noBtn.style.display = 'none';
 }
 
 // ── No button — dodge + CSS animation + mascot reaction ──────────────────────
@@ -282,36 +304,37 @@ function scheduleBubbleHide(ms) {
 // ── Yes page (yes.html) ───────────────────────────────────────────────────────
 
 if (document.getElementById('confettiContainer')) {
-  const params   = new URLSearchParams(window.location.search);
-  const confetti = params.get('confetti') || null;
+  const inviteId = new URLSearchParams(window.location.search).get('id');
 
-  injectCSS(confetti || FALLBACK_CONFETTI_CSS);
+  injectCSS(FALLBACK_CONFETTI_CSS);
   createConfetti();
-  notifyCalendarAcceptance(params);
+  loadCelebrationCSS(inviteId);
+  notifyCalendarAcceptance(inviteId);
 }
 
-async function notifyCalendarAcceptance(params) {
+async function loadCelebrationCSS(inviteId) {
+  if (!inviteId || !API_URL) return;
+  try {
+    const invite = await fetchInvite(inviteId);
+    injectCSS(invite.confettiCSS || FALLBACK_CONFETTI_CSS);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function notifyCalendarAcceptance(inviteId) {
   const status = document.getElementById('calendarStatus');
   if (!status) return;
 
-  const senderEmail = params.get('senderEmail') || '';
-  const activity = params.get('activity') || '';
-  const date = params.get('date') || '';
-  if (!senderEmail || !activity || !date) {
-    status.textContent = '';
+  if (!inviteId) {
+    status.textContent = 'This invitation is unavailable.';
+    status.classList.add('error');
     return;
   }
 
   if (!API_URL) {
     status.textContent = 'Calendar invite is unavailable in local preview.';
     status.classList.add('error');
-    return;
-  }
-
-  const key = `calendarInvite:${senderEmail}:${activity}:${date}`;
-  if (sessionStorage.getItem(key)) {
-    status.textContent = 'Calendar invite already sent.';
-    status.classList.add('success');
     return;
   }
 
@@ -323,19 +346,17 @@ async function notifyCalendarAcceptance(params) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'acceptInvite',
-        senderEmail,
-        recipientName: params.get('name') || 'Your guest',
-        activity,
-        date,
-        timezone: params.get('senderTz') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        message: params.get('message') || '',
+        inviteId,
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-    sessionStorage.setItem(key, 'sent');
-    status.textContent = 'Calendar invite sent.';
+    status.textContent = data.alreadySent
+      ? 'Calendar invite already sent.'
+      : data.sending
+        ? 'Calendar invite is already being sent.'
+        : 'Calendar invite sent.';
     status.classList.remove('error');
     status.classList.add('success');
   } catch (err) {
@@ -346,6 +367,17 @@ async function notifyCalendarAcceptance(params) {
     status.classList.remove('success');
     status.classList.add('error');
   }
+}
+
+async function fetchInvite(inviteId) {
+  const res = await fetch(`${API_URL}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'getInvite', inviteId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 }
 
 function createConfetti() {

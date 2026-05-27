@@ -1,4 +1,6 @@
 const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const OpenAI = require('openai');
 const crypto = require('crypto');
 const https = require('https');
@@ -7,6 +9,11 @@ const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || '
 const CLAUDE_MODEL_ID =
   process.env.BEDROCK_CLAUDE_MODEL_ID || 'global.anthropic.claude-haiku-4-5-20251001-v1:0';
 const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
+const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({
+  region: process.env.AWS_REGION || 'ap-northeast-1',
+}));
+const INVITE_TABLE_NAME = process.env.INVITE_TABLE_NAME;
+const ACCEPTANCE_LOCK_SECONDS = Math.max(1, Number(process.env.ACCEPTANCE_LOCK_SECONDS || 60) || 60);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -37,8 +44,8 @@ exports.handler = async (event) => {
 
     if (type === 'acceptInvite') {
       try {
-        const result = await sendCalendarInvite(body);
-        return respond(result.ok === false ? 400 : 200, result);
+        const result = await acceptInvite(body.inviteId);
+        return respond(result.statusCode || 200, result.body);
       } catch (err) {
         console.error('acceptInvite failed:', err);
         return respond(500, {
@@ -48,11 +55,20 @@ exports.handler = async (event) => {
       }
     }
 
-    // type === 'invite': run all generations in parallel
-    const { name, activity, date, note } = body;
-    if (!name || !activity || !date) {
-      return respond(400, { error: 'name, activity, and date are required' });
+    if (type === 'getInvite') {
+      const result = await getPublicInvite(body.inviteId);
+      return respond(result.statusCode, result.body);
     }
+
+    // type === 'invite': run all generations in parallel
+    const { senderEmail, timezone, name, activity, date, note } = body;
+    if (!senderEmail || !name || !activity || !date) {
+      return respond(400, { error: 'senderEmail, name, activity, and date are required' });
+    }
+    if (!isValidEmail(senderEmail)) {
+      return respond(400, { error: 'senderEmail must be a valid email address' });
+    }
+    requireInviteTable();
 
     const [[message, usedProvider], mascotIntro, buttonAnimCSS, confettiCSS] = await Promise.all([
       generateInviteMessage(name, activity, date, note),
@@ -61,7 +77,28 @@ exports.handler = async (event) => {
       generateConfettiCSS(activity),
     ]);
 
+    const inviteId = crypto.randomUUID();
+    await dynamodb.send(new PutCommand({
+      TableName: INVITE_TABLE_NAME,
+      Item: {
+        inviteId,
+        senderEmail,
+        recipientName: name,
+        activity,
+        date,
+        timezone: timezone || 'UTC',
+        message,
+        mascotIntro,
+        buttonAnimCSS,
+        confettiCSS,
+        status: 'CREATED',
+        createdAt: new Date().toISOString(),
+      },
+      ConditionExpression: 'attribute_not_exists(inviteId)',
+    }));
+
     return respond(200, {
+      inviteId,
       message,
       mascotIntro,
       buttonAnimCSS,
@@ -73,6 +110,138 @@ exports.handler = async (event) => {
     return respond(500, { error: 'Something went wrong. Please try again.' });
   }
 };
+
+// ── Stored invitations ─────────────────────────────────────────────────────────
+
+function requireInviteTable() {
+  if (!INVITE_TABLE_NAME) {
+    throw new Error('INVITE_TABLE_NAME env var is not configured');
+  }
+}
+
+async function loadInvite(inviteId) {
+  if (!inviteId) return null;
+  requireInviteTable();
+  const result = await dynamodb.send(new GetCommand({
+    TableName: INVITE_TABLE_NAME,
+    Key: { inviteId },
+  }));
+  return result.Item || null;
+}
+
+async function getPublicInvite(inviteId) {
+  if (!inviteId) {
+    return { statusCode: 400, body: { error: 'inviteId is required' } };
+  }
+
+  const invite = await loadInvite(inviteId);
+  if (!invite) {
+    return { statusCode: 404, body: { error: 'Invite not found or no longer available.' } };
+  }
+
+  return {
+    statusCode: 200,
+    body: {
+      recipientName: invite.recipientName,
+      activity: invite.activity,
+      date: invite.date,
+      message: invite.message,
+      mascotIntro: invite.mascotIntro,
+      buttonAnimCSS: invite.buttonAnimCSS,
+      confettiCSS: invite.confettiCSS,
+    },
+  };
+}
+
+async function acceptInvite(inviteId) {
+  if (!inviteId) {
+    return { statusCode: 400, body: { ok: false, error: 'inviteId is required' } };
+  }
+
+  const invite = await loadInvite(inviteId);
+  if (!invite) {
+    return { statusCode: 404, body: { ok: false, error: 'Invite not found or no longer available.' } };
+  }
+  if (invite.status === 'SENT') {
+    return { body: { ok: true, alreadySent: true } };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const lockToken = crypto.randomUUID();
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: INVITE_TABLE_NAME,
+      Key: { inviteId },
+      UpdateExpression: 'SET #status = :sending, lockUntil = :lockUntil, acceptanceToken = :token',
+      ConditionExpression:
+        '#status = :created OR #status = :failed OR (#status = :sending AND lockUntil < :now)',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':created': 'CREATED',
+        ':failed': 'FAILED',
+        ':sending': 'SENDING',
+        ':now': now,
+        ':lockUntil': now + ACCEPTANCE_LOCK_SECONDS,
+        ':token': lockToken,
+      },
+    }));
+  } catch (err) {
+    if (err.name !== 'ConditionalCheckFailedException') throw err;
+    const current = await loadInvite(inviteId);
+    if (current?.status === 'SENT') {
+      return { body: { ok: true, alreadySent: true } };
+    }
+    return { body: { ok: true, sending: true } };
+  }
+
+  let result;
+  try {
+    result = await sendCalendarInvite(inviteId, invite);
+  } catch (err) {
+    await markInviteFailed(inviteId, lockToken, err);
+    throw err;
+  }
+
+  await markInviteSent(inviteId, lockToken);
+  return { body: result };
+}
+
+async function markInviteSent(inviteId, lockToken) {
+  await dynamodb.send(new UpdateCommand({
+    TableName: INVITE_TABLE_NAME,
+    Key: { inviteId },
+    UpdateExpression: 'SET #status = :sent, sentAt = :sentAt REMOVE lockUntil, acceptanceToken',
+    ConditionExpression: '#status = :sending AND acceptanceToken = :token',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: {
+      ':sending': 'SENDING',
+      ':sent': 'SENT',
+      ':sentAt': new Date().toISOString(),
+      ':token': lockToken,
+    },
+  }));
+}
+
+async function markInviteFailed(inviteId, lockToken, error) {
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: INVITE_TABLE_NAME,
+      Key: { inviteId },
+      UpdateExpression: 'SET #status = :failed, failedAt = :failedAt, failureReason = :reason REMOVE lockUntil, acceptanceToken',
+      ConditionExpression: '#status = :sending AND acceptanceToken = :token',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':sending': 'SENDING',
+        ':failed': 'FAILED',
+        ':failedAt': new Date().toISOString(),
+        ':reason': String(error.message || error).slice(0, 500),
+        ':token': lockToken,
+      },
+    }));
+  } catch (updateError) {
+    console.error('Unable to mark failed invite:', updateError);
+  }
+}
 
 // ── Invite message ────────────────────────────────────────────────────────────
 
@@ -118,12 +287,12 @@ async function generateReaction() {
 
 // ── SES calendar invite on Yes ────────────────────────────────────────────────
 
-async function sendCalendarInvite({ senderEmail, recipientName, activity, date, timezone, message }) {
+async function sendCalendarInvite(inviteId, { senderEmail, recipientName, activity, date, timezone, message }) {
   if (!senderEmail || !activity || !date) {
-    return { ok: false, error: 'senderEmail, activity, and date are required' };
+    throw new Error('Stored invite is missing senderEmail, activity, or date');
   }
   if (!isValidEmail(senderEmail)) {
-    return { ok: false, error: 'senderEmail must be a valid email address' };
+    throw new Error('Stored invite has an invalid sender email address');
   }
 
   const fromEmail = process.env.SES_FROM_EMAIL;
@@ -136,7 +305,7 @@ async function sendCalendarInvite({ senderEmail, recipientName, activity, date, 
   const startDateTime = normalizeLocalDateTime(date);
   const endDateTime = addHoursToLocalDateTime(startDateTime, 1);
   const safeRecipient = recipientName || 'Your guest';
-  const uid = `${Date.now()}-${Math.random().toString(36).slice(2)}@jaycloud.net`;
+  const uid = `${inviteId}@jaycloud.net`;
   const summary = `${safeRecipient} said yes: ${activity}`;
   const description = [
     `${safeRecipient} accepted your invite.`,

@@ -40,14 +40,18 @@ flowchart LR
   end
 
   subgraph Lambda["AWS Lambda: invite-generate"]
-    G["AI invite generation"]
-    H["acceptInvite handler"]
+    G["AI invite generation + inviteId"]
+    H["getInvite / acceptInvite handlers"]
   end
 
-  subgraph External["External services"]
-    I["OpenAI / Amazon Bedrock (Claude)"]
+  subgraph AWS["AWS data and messaging"]
+    I["Amazon DynamoDB: invite-records"]
     J["Amazon SES"]
     K["Sender email inbox / calendar app"]
+  end
+
+  subgraph External["AI services"]
+    L["OpenAI / Amazon Bedrock (Claude)"]
   end
 
   A --> D
@@ -55,10 +59,13 @@ flowchart LR
   C --> D
   D --> E
   A --> F
+  B --> F
   C --> F
   F --> G
   F --> H
+  G --> L
   G --> I
+  H --> I
   H --> J
   J --> K
 ```
@@ -68,11 +75,11 @@ flowchart LR
 1. The sender fills in their email, recipient name, activity, date, and optional note.
 2. The frontend sends an `invite` request to API Gateway.
 3. API Gateway invokes Lambda.
-4. Lambda uses OpenAI first, then falls back to Claude if needed.
-5. The frontend generates a shareable `/invite.html?...` URL containing the invite details.
-6. The recipient opens the invite and clicks **Yes!**.
-7. `/yes.html` sends an `acceptInvite` request to Lambda.
-8. Lambda sends the sender an `.ics` calendar invite email through Amazon SES.
+4. Lambda generates the content, creates an `inviteId`, and stores the private invitation record in DynamoDB.
+5. The frontend shares `/invite.html?id=<inviteId>`; personal details do not appear in the URL.
+6. The recipient page requests public display fields by `inviteId`, then the recipient clicks **Yes!**.
+7. `/yes.html` sends only `inviteId` in its `acceptInvite` request.
+8. Lambda conditionally reserves the first acceptance, sends one `.ics` calendar invite through Amazon SES, and records the invite as `SENT`.
 
 ### AI Model Roles
 
@@ -116,6 +123,8 @@ Manual Lambda upload -> AWS Lambda deploys lambda/
 ```
 
 This is important: changing files in `lambda/` and pushing to GitHub does **not** automatically update the live Lambda function unless a separate backend deployment pipeline is added.
+
+For the DynamoDB invite-store release, configure the table, IAM permission, and Lambda environment variable, then deploy Lambda before publishing the matching frontend. The new frontend requires `inviteId` responses from the updated backend.
 
 ### GitHub Commits And Amplify Deployments
 
@@ -205,6 +214,20 @@ aws lambda wait function-updated \
 
 The wait command matters because AWS may accept the upload before the function is fully ready for new invocations.
 
+### When Lambda Needs A Code Upload
+
+Lambda configuration changes and Lambda code deployments are separate operations. Updating an API key or environment variable changes the configuration used by the already deployed code; it does not require uploading a new `.zip` file. Code or dependency changes do require a new upload.
+
+| Change | Lambda code upload required? |
+|---|---:|
+| Change an API key or an existing environment variable value | No |
+| Add an environment variable already consumed by deployed code | No |
+| Edit `generate.js` | Yes |
+| Add npm dependencies, such as the DynamoDB SDK | Yes |
+| Change runtime, permissions, memory, timeout, or environment configuration | No code upload; configuration update required |
+
+The DynamoDB invite-store release needs both kinds of update: the table permission and `INVITE_TABLE_NAME` configuration, plus a code upload containing the new DynamoDB behavior and SDK packages.
+
 ## Lambda Environment Variables
 
 Set these on the `invite-generate` Lambda function:
@@ -217,9 +240,53 @@ BEDROCK_CLAUDE_MODEL_ID=global.anthropic.claude-haiku-4-5-20251001-v1:0
 SES_FROM_EMAIL=invites@jaycloud.net
 SES_REGION=ap-northeast-1
 SES_CALENDAR_TIMEZONE=Europe/London
+INVITE_TABLE_NAME=invite-records
+ACCEPTANCE_LOCK_SECONDS=60
 ```
 
 `AWS_BEARER_TOKEN_BEDROCK` is the Amazon Bedrock API key used for this exercise. For a longer-lived workload, prefer granting the Lambda execution role Bedrock invocation permissions instead of storing a long-term API key. `BEDROCK_CLAUDE_MODEL_ID` is optional and defaults to the global Claude Haiku 4.5 inference profile. `SES_CALENDAR_TIMEZONE` is optional. The frontend also passes the sender's browser timezone when generating an invite.
+
+## DynamoDB Invite Store
+
+Create a DynamoDB table in the Lambda region with `inviteId` as its partition key:
+
+```bash
+aws dynamodb create-table \
+  --table-name invite-records \
+  --attribute-definitions AttributeName=inviteId,AttributeType=S \
+  --key-schema AttributeName=inviteId,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region ap-northeast-1
+
+aws dynamodb wait table-exists \
+  --table-name invite-records \
+  --region ap-northeast-1
+```
+
+Add these Lambda environment variables:
+
+```text
+INVITE_TABLE_NAME=invite-records
+ACCEPTANCE_LOCK_SECONDS=60
+```
+
+`ACCEPTANCE_LOCK_SECONDS` is optional. It allows a later request to retry an invite left in `SENDING` if an invocation stops before finishing.
+
+Grant the Lambda execution role access to the invite table, substituting your AWS account ID:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:UpdateItem"
+  ],
+  "Resource": "arn:aws:dynamodb:ap-northeast-1:YOUR_ACCOUNT_ID:table/invite-records"
+}
+```
+
+An invite begins as `CREATED`. The first acceptance conditionally changes it to `SENDING`, sends SES email, and changes it to `SENT`; duplicate acceptances do not send again. A clear SES send failure changes it to `FAILED` so it can be retried. The calendar event UID is derived from `inviteId`, limiting duplicate calendar events if an SES success occurs before Lambda can persist `SENT`.
 
 ## SES Calendar Invite Procedure
 

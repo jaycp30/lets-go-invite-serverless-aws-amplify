@@ -5,6 +5,8 @@
   "main": "generate.js",
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1054.0",
+    "@aws-sdk/client-dynamodb": "^3.1054.0",
+    "@aws-sdk/lib-dynamodb": "^3.1054.0",
     "openai": "^4.0.0"
   }
 }
