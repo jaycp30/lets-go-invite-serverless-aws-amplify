@@ -3,8 +3,8 @@ frontend:
   phases:
     build:
       commands:
-        # Inject the API Gateway URL from the Amplify environment variable
-        - "echo \"window.CONFIG = { apiUrl: '${API_GATEWAY_URL}' };\" > site/config.js"
+        # Inject public browser configuration from Amplify environment variables
+        - "echo \"window.CONFIG = { apiUrl: '${API_GATEWAY_URL}', turnstileSiteKey: '${TURNSTILE_SITE_KEY}' };\" > site/config.js"
   artifacts:
     baseDirectory: site
     files:

@@ -1,8 +1,10 @@
-const APP_VERSION = '202605271200';
+const APP_VERSION = '20260527-turnstile';
 window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
 console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
 const API_URL = (window.CONFIG?.apiUrl || '').replace(/\/$/, '');
+const TURNSTILE_SITE_KEY = window.CONFIG?.turnstileSiteKey || '';
+const TURNSTILE_ACTION = 'generate_invite';
 
 // ── Fallbacks (used when no API_URL or as instant response) ──────────────────
 
@@ -45,6 +47,56 @@ const shareBtn = document.getElementById('shareBtn');
 if (shareBtn) shareBtn.addEventListener('click', copyShareLink);
 
 let lastGenerated = {};
+let turnstileToken = '';
+let turnstileWidgetId = null;
+
+window.initializeTurnstile = function initializeTurnstile() {
+  const mount = document.getElementById('turnstileWidget');
+  const status = document.getElementById('turnstileStatus');
+  if (!mount || !status) return;
+
+  if (!TURNSTILE_SITE_KEY) {
+    status.textContent = 'Human verification is not configured.';
+    status.classList.add('error');
+    return;
+  }
+
+  turnstileWidgetId = window.turnstile.render(mount, {
+    sitekey: TURNSTILE_SITE_KEY,
+    action: TURNSTILE_ACTION,
+    theme: 'light',
+    callback: (token) => {
+      turnstileToken = token;
+      status.textContent = 'Verification complete.';
+      status.classList.remove('error');
+      status.classList.add('success');
+    },
+    'expired-callback': () => {
+      turnstileToken = '';
+      status.textContent = 'Verification expired. Please try again.';
+      status.classList.remove('success');
+      status.classList.add('error');
+    },
+    'error-callback': () => {
+      turnstileToken = '';
+      status.textContent = 'Verification could not load. Please retry.';
+      status.classList.remove('success');
+      status.classList.add('error');
+    },
+  });
+};
+
+function resetTurnstile() {
+  turnstileToken = '';
+  const status = document.getElementById('turnstileStatus');
+  if (status) {
+    status.textContent = 'Checking you are human...';
+    status.classList.remove('success', 'error');
+  }
+  if (window.turnstile && turnstileWidgetId !== null) {
+    window.turnstile.reset(turnstileWidgetId);
+  }
+}
 
 async function generateInvite() {
   const senderEmail = document.getElementById('senderEmail').value.trim();
@@ -55,6 +107,10 @@ async function generateInvite() {
 
   if (!senderEmail || !name || !activity || !date) {
     alert('Please fill in your email, name, activity, and date.');
+    return;
+  }
+  if (!TURNSTILE_SITE_KEY || !turnstileToken) {
+    alert('Please complete the human verification challenge.');
     return;
   }
 
@@ -74,11 +130,11 @@ async function generateInvite() {
         activity,
         date,
         note,
+        turnstileToken,
       }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     if (!data.inviteId) {
       throw new Error('Invite storage is not available yet.');
     }
@@ -90,10 +146,11 @@ async function generateInvite() {
     showPreview(data.message, activity, date, data.provider);
   } catch (err) {
     console.error(err);
-    alert('Something went wrong generating the invite. Please try again.');
+    alert(err.message || 'Something went wrong generating the invite. Please try again.');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Generate Invite';
+    resetTurnstile();
   }
 }
 

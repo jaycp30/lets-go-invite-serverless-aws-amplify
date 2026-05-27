@@ -47,6 +47,11 @@
             <textarea id="note" placeholder="Something sweet you want to add…"></textarea>
           </div>
 
+          <div class="verification-group">
+            <div id="turnstileWidget"></div>
+            <p class="verification-status" id="turnstileStatus" aria-live="polite">Checking you are human...</p>
+          </div>
+
           <button type="submit" class="btn btn-primary" id="generateBtn">
             Generate Invite
           </button>
@@ -67,7 +72,8 @@
   </div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=202605271200"></script>
+  <script src="./app.js?v=20260527-turnstile"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer onload="initializeTurnstile()"></script>
   <script>
     const obs = new IntersectionObserver((entries) => {
       entries.forEach(e => {

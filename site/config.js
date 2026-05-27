@@ -1,5 +1,6 @@
-// Injected at build time by amplify.yml using the API_GATEWAY_URL env var.
-// For local development, replace the empty string with your API Gateway invoke URL.
+// Injected at build time by amplify.yml using Amplify environment variables.
+// For local development, configure an API URL and Cloudflare Turnstile test sitekey.
 window.CONFIG = {
   apiUrl: '',
+  turnstileSiteKey: '',
 };

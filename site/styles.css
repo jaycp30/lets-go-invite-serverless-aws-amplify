@@ -191,6 +191,22 @@ textarea {
   min-height: 80px;
 }
 
+.verification-group {
+  margin: 24px 0 18px;
+  min-height: 76px;
+}
+
+.verification-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 8px;
+  min-height: 1.25rem;
+}
+
+.verification-status.success { color: var(--accent); }
+
+.verification-status.error { color: #9e3f3f; }
+
 /* ── Provider toggle ─────────────────────────────────────────────────────────── */
 
 .provider-toggle {

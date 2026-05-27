@@ -12,7 +12,7 @@ invite_Claude-exercise/
 │   ├── yes.html           # Celebration page after "Yes!"
 │   ├── styles.css         # Responsive CSS
 │   ├── app.js             # Frontend logic
-│   └── config.js          # API URL config, injected by Amplify
+│   └── config.js          # API URL and Turnstile public sitekey, injected by Amplify
 ├── lambda/
 │   ├── generate.js        # AI generation + SES calendar invite backend
 │   └── package.json
@@ -165,16 +165,17 @@ artifacts:
 
 Every push to the connected branch redeploys the static frontend from `site/`.
 
-Amplify also injects the API Gateway URL into `site/config.js` during build:
+Amplify also injects the API Gateway URL and public Turnstile sitekey into `site/config.js` during build:
 
 ```yaml
-- "echo \"window.CONFIG = { apiUrl: '${API_GATEWAY_URL}' };\" > site/config.js"
+- "echo \"window.CONFIG = { apiUrl: '${API_GATEWAY_URL}', turnstileSiteKey: '${TURNSTILE_SITE_KEY}' };\" > site/config.js"
 ```
 
-Required Amplify environment variable:
+Required Amplify environment variables:
 
 ```text
 API_GATEWAY_URL=https://your-api-id.execute-api.ap-northeast-1.amazonaws.com
+TURNSTILE_SITE_KEY=your-public-turnstile-sitekey
 ```
 
 ### Skipping Amplify Deployments With `[skip cd]`
@@ -242,9 +243,73 @@ SES_REGION=ap-northeast-1
 SES_CALENDAR_TIMEZONE=Europe/London
 INVITE_TABLE_NAME=invite-records
 ACCEPTANCE_LOCK_SECONDS=60
+ANONYMOUS_INVITE_DAILY_LIMIT=3
+ANONYMOUS_RATE_LIMIT_SALT=generate-a-long-random-secret
+TURNSTILE_SECRET_KEY=your-private-turnstile-secret-key
+TURNSTILE_EXPECTED_HOSTNAMES=main.d3uvea0sx512tw.amplifyapp.com
 ```
 
 `AWS_BEARER_TOKEN_BEDROCK` is the Amazon Bedrock API key used for this exercise. For a longer-lived workload, prefer granting the Lambda execution role Bedrock invocation permissions instead of storing a long-term API key. `BEDROCK_CLAUDE_MODEL_ID` is optional and defaults to the global Claude Haiku 4.5 inference profile. `SES_CALENDAR_TIMEZONE` is optional. The frontend also passes the sender's browser timezone when generating an invite.
+
+`ANONYMOUS_INVITE_DAILY_LIMIT` defaults to `3`. Before performing AI generation, Lambda atomically reserves invitation allowances in DynamoDB for both the API Gateway source IP and the notification email address for the current UTC date. This intentionally charges failed generation attempts too, so repeatedly triggering model failures cannot bypass the cost guardrail. `ANONYMOUS_RATE_LIMIT_SALT` makes the stored source-IP and email fingerprints non-reversible without the secret; configure it to a long random value.
+
+This preserves public use, but an IP address or submitted email is not a verified user identity: people on one shared network share an allowance, and an attacker can consume a target email address's allowance for the day. Configure API Gateway throttling and operational alerts as additional protections. A stronger public product would add CAPTCHA or account/email verification.
+
+## Cloudflare Turnstile Bot Protection
+
+Turnstile protects invitation generation before Lambda reserves rate-limit capacity or invokes any AI models. The browser sends a short-lived token with the generation request, and Lambda validates it using Cloudflare's Siteverify API. Tokens are single-use and expire after five minutes.
+
+### Configure Turnstile
+
+1. In the Cloudflare dashboard, go to **Turnstile** and select **Add widget**.
+2. Choose **Managed** widget mode.
+3. Add the production hostname:
+
+   ```text
+   main.d3uvea0sx512tw.amplifyapp.com
+   ```
+
+4. Copy the widget **sitekey** and **secret key**.
+5. In Amplify Hosting, add the public sitekey environment variable:
+
+   ```text
+   TURNSTILE_SITE_KEY=<sitekey>
+   ```
+
+6. In Lambda, add the private secret and expected production hostname:
+
+   ```text
+   TURNSTILE_SECRET_KEY=<secret-key>
+   TURNSTILE_EXPECTED_HOSTNAMES=main.d3uvea0sx512tw.amplifyapp.com
+   ```
+
+Do not put `TURNSTILE_SECRET_KEY` in Amplify or `site/config.js`; it must remain server-side in Lambda. If a custom domain is added later, add it to the Turnstile widget and to the comma-separated `TURNSTILE_EXPECTED_HOSTNAMES` value.
+
+Deploy in this order to avoid a temporary broken generator:
+
+1. Create the Turnstile widget and set `TURNSTILE_SITE_KEY` in Amplify.
+2. Deploy the updated frontend so generation requests include Turnstile tokens.
+3. Set `TURNSTILE_SECRET_KEY` and `TURNSTILE_EXPECTED_HOSTNAMES` in Lambda.
+4. Deploy the updated Lambda code that enforces verification.
+
+### Local Turnstile Testing
+
+Cloudflare provides dummy credentials for local testing. Configure `site/config.js` with the always-pass public test sitekey:
+
+```js
+window.CONFIG = {
+  apiUrl: 'https://your-api-id.execute-api.ap-northeast-1.amazonaws.com',
+  turnstileSiteKey: '1x00000000000000000000AA',
+};
+```
+
+Configure Lambda with the matching always-pass test secret only in a non-production/test environment:
+
+```text
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+```
+
+Production Turnstile secret keys reject dummy tokens, so do not mix test browser configuration with the production Lambda.
 
 ## DynamoDB Invite Store
 
@@ -272,6 +337,8 @@ CREATED -> SENDING -> SENT
 
 Only the request that successfully reserves `SENDING` sends the SES calendar email. Later acceptances return that the calendar invite was already sent. DynamoDB is therefore both the invitation store and the server-side duplicate-send guard.
 
+Before AI generation or invite creation, Lambda also stores daily usage counters under anonymized source-IP and notification-email fingerprints. Once either fingerprint has generated three invitations in one UTC day, further generation requests receive HTTP `429` until the next UTC day. Since each stored invitation can send at most one email, a mailbox cannot be targeted through this endpoint more than three times per UTC day without changing the destination address.
+
 Create a DynamoDB table in the Lambda region with `inviteId` as its partition key:
 
 ```bash
@@ -292,9 +359,23 @@ Add these Lambda environment variables:
 ```text
 INVITE_TABLE_NAME=invite-records
 ACCEPTANCE_LOCK_SECONDS=60
+ANONYMOUS_INVITE_DAILY_LIMIT=3
+ANONYMOUS_RATE_LIMIT_SALT=generate-a-long-random-secret
+TURNSTILE_SECRET_KEY=your-private-turnstile-secret-key
+TURNSTILE_EXPECTED_HOSTNAMES=main.d3uvea0sx512tw.amplifyapp.com
 ```
 
 `ACCEPTANCE_LOCK_SECONDS` is optional. It allows a later request to retry an invite left in `SENDING` if an invocation stops before finishing.
+`ANONYMOUS_RATE_LIMIT_SALT` should be set once and retained; rotating it resets the effective counters because it changes source-IP fingerprints.
+
+Optionally enable DynamoDB TTL on the `expiresAt` attribute. Usage-counter records are written with expiry timestamps; TTL keeps old counter records from accumulating after their windows have passed:
+
+```bash
+aws dynamodb update-time-to-live \
+  --table-name invite-records \
+  --time-to-live-specification "Enabled=true, AttributeName=expiresAt" \
+  --region ap-northeast-1
+```
 
 Grant the Lambda execution role access to the invite table, substituting your AWS account ID:
 
@@ -374,6 +455,8 @@ When the recipient clicks **Yes!**, Lambda sends a raw MIME email with a `text/c
 5. Copy the invoke URL.
 6. Add it to Amplify as `API_GATEWAY_URL`.
 
+Because this route is public, set API Gateway throttling for `POST /generate` and alert on unexpected Lambda, Bedrock, OpenAI, and SES usage. Turnstile rejects ordinary automated generation attempts before model spend. The application-level daily limit controls repeated invite generation from one source IP and repeated notifications to one email address; API throttling helps with bursts, reaction requests, and distributed attempts.
+
 The frontend calls:
 
 ```js
@@ -382,7 +465,7 @@ fetch(`${API_URL}/generate`, ...)
 
 ## Local Development
 
-Set `apiUrl` in `site/config.js` to your API Gateway URL, then serve the static site:
+Set `apiUrl` and a Turnstile testing sitekey in `site/config.js` as documented above, then serve the static site:
 
 ```bash
 npx serve site

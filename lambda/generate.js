@@ -1,6 +1,6 @@
 const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const OpenAI = require('openai');
 const crypto = require('crypto');
 const https = require('https');
@@ -14,6 +14,16 @@ const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({
 }));
 const INVITE_TABLE_NAME = process.env.INVITE_TABLE_NAME;
 const ACCEPTANCE_LOCK_SECONDS = Math.max(1, Number(process.env.ACCEPTANCE_LOCK_SECONDS || 60) || 60);
+const ANONYMOUS_INVITE_DAILY_LIMIT = Math.max(1, Number(process.env.ANONYMOUS_INVITE_DAILY_LIMIT || 3) || 3);
+const ANONYMOUS_RATE_LIMIT_SALT = process.env.ANONYMOUS_RATE_LIMIT_SALT || '';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
+const TURNSTILE_ACTION = 'generate_invite';
+const TURNSTILE_EXPECTED_HOSTNAMES = new Set(
+  String(process.env.TURNSTILE_EXPECTED_HOSTNAMES || '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -65,10 +75,26 @@ exports.handler = async (event) => {
     if (!senderEmail || !name || !activity || !date) {
       return respond(400, { error: 'senderEmail, name, activity, and date are required' });
     }
-    if (!isValidEmail(senderEmail)) {
+    const notificationEmail = normalizeEmail(senderEmail);
+    if (!isValidEmail(notificationEmail)) {
       return respond(400, { error: 'senderEmail must be a valid email address' });
     }
+    const verification = await verifyTurnstile(body.turnstileToken, event);
+    if (!verification.success) {
+      return respond(verification.statusCode, { error: verification.message });
+    }
     requireInviteTable();
+    const allowance = await reserveAnonymousInviteAllowance(event, notificationEmail);
+    if (!allowance.allowed) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((new Date(allowance.retryAfter).getTime() - Date.now()) / 1000),
+      );
+      return respond(429, {
+        error: `Daily invite limit reached. You can generate up to ${ANONYMOUS_INVITE_DAILY_LIMIT} invites per day.`,
+        retryAfter: allowance.retryAfter,
+      }, { 'Retry-After': String(retryAfterSeconds) });
+    }
 
     const [[message, usedProvider], mascotIntro, buttonAnimCSS, confettiCSS] = await Promise.all([
       generateInviteMessage(name, activity, date, note),
@@ -82,7 +108,7 @@ exports.handler = async (event) => {
       TableName: INVITE_TABLE_NAME,
       Item: {
         inviteId,
-        senderEmail,
+        senderEmail: notificationEmail,
         recipientName: name,
         activity,
         date,
@@ -127,6 +153,110 @@ async function loadInvite(inviteId) {
     Key: { inviteId },
   }));
   return result.Item || null;
+}
+
+async function verifyTurnstile(token, event) {
+  if (!TURNSTILE_SECRET_KEY) {
+    console.error('TURNSTILE_SECRET_KEY is not configured; public invite generation is disabled');
+    return { success: false, statusCode: 503, message: 'Human verification is not configured.' };
+  }
+  if (!token || typeof token !== 'string' || token.length > 2048) {
+    return { success: false, statusCode: 400, message: 'Please complete the human verification challenge.' };
+  }
+
+  const params = new URLSearchParams({
+    secret: TURNSTILE_SECRET_KEY,
+    response: token,
+    remoteip: sourceIpForEvent(event),
+    idempotency_key: crypto.randomUUID(),
+  });
+  const response = await httpsRequest({
+    hostname: 'challenges.cloudflare.com',
+    path: '/turnstile/v0/siteverify',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(params.toString()),
+    },
+  }, params.toString());
+
+  let validation;
+  try {
+    validation = JSON.parse(response.body);
+  } catch {
+    validation = { success: false, 'error-codes': ['invalid-siteverify-response'] };
+  }
+  if (response.statusCode < 200 || response.statusCode >= 300 || !validation.success) {
+    console.warn('Turnstile validation rejected:', validation['error-codes'] || response.statusCode);
+    return { success: false, statusCode: 400, message: 'Human verification failed. Please try again.' };
+  }
+  if (validation.action !== TURNSTILE_ACTION) {
+    console.warn('Turnstile action mismatch:', validation.action);
+    return { success: false, statusCode: 400, message: 'Human verification failed. Please try again.' };
+  }
+  if (TURNSTILE_EXPECTED_HOSTNAMES.size > 0 &&
+      !TURNSTILE_EXPECTED_HOSTNAMES.has(String(validation.hostname || '').toLowerCase())) {
+    console.warn('Turnstile hostname mismatch:', validation.hostname);
+    return { success: false, statusCode: 400, message: 'Human verification failed. Please try again.' };
+  }
+  return { success: true };
+}
+
+async function reserveAnonymousInviteAllowance(event, notificationEmail) {
+  const sourceIp = sourceIpForEvent(event);
+  const now = new Date();
+  const windowDate = now.toISOString().slice(0, 10);
+  const nextWindow = new Date(`${windowDate}T00:00:00.000Z`);
+  nextWindow.setUTCDate(nextWindow.getUTCDate() + 1);
+  const expiresAt = Math.floor(nextWindow.getTime() / 1000) + 86400;
+  const sourceFingerprint = anonymousClientFingerprint(`source-ip:${sourceIp}`);
+  const emailFingerprint = anonymousClientFingerprint(`notification-email:${notificationEmail}`);
+
+  try {
+    await dynamodb.send(new TransactWriteCommand({
+      TransactItems: [
+        inviteAllowanceCounterUpdate(`RATE#SOURCE_IP#${windowDate}#${sourceFingerprint}`, windowDate, expiresAt, now),
+        inviteAllowanceCounterUpdate(`RATE#NOTIFICATION_EMAIL#${windowDate}#${emailFingerprint}`, windowDate, expiresAt, now),
+      ],
+    }));
+    return { allowed: true };
+  } catch (err) {
+    if (err.name !== 'TransactionCanceledException') throw err;
+    return { allowed: false, retryAfter: nextWindow.toISOString() };
+  }
+}
+
+function sourceIpForEvent(event) {
+  return event.requestContext?.http?.sourceIp ||
+    event.requestContext?.identity?.sourceIp ||
+    'unidentified-client';
+}
+
+function inviteAllowanceCounterUpdate(inviteId, windowDate, expiresAt, now) {
+  return {
+    Update: {
+      TableName: INVITE_TABLE_NAME,
+      Key: { inviteId },
+      UpdateExpression:
+        'SET recordType = :recordType, windowDate = :windowDate, expiresAt = :expiresAt, updatedAt = :updatedAt ADD requestCount :one',
+      ConditionExpression: 'attribute_not_exists(requestCount) OR requestCount < :limit',
+      ExpressionAttributeValues: {
+        ':recordType': 'ANONYMOUS_INVITE_DAILY_LIMIT',
+        ':windowDate': windowDate,
+        ':expiresAt': expiresAt,
+        ':updatedAt': now.toISOString(),
+        ':one': 1,
+        ':limit': ANONYMOUS_INVITE_DAILY_LIMIT,
+      },
+    },
+  };
+}
+
+function anonymousClientFingerprint(value) {
+  if (ANONYMOUS_RATE_LIMIT_SALT) {
+    return crypto.createHmac('sha256', ANONYMOUS_RATE_LIMIT_SALT).update(value).digest('hex');
+  }
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 async function getPublicInvite(inviteId) {
@@ -477,6 +607,10 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
 function normalizeLocalDateTime(value) {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
     return value.slice(0, 16);
@@ -635,6 +769,6 @@ function sanitizeSvg(svg) {
     .replace(/\son\w+='[^']*'/gi, '');
 }
 
-function respond(statusCode, body) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(body) };
+function respond(statusCode, body, extraHeaders = {}) {
+  return { statusCode, headers: { ...CORS_HEADERS, ...extraHeaders }, body: JSON.stringify(body) };
 }
