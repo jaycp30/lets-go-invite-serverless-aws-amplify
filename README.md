@@ -22,7 +22,9 @@ invite_Claude-exercise/
 
 ## Architecture
 
-See [architecture.drawio](architecture.drawio) for the interactive diagram — GitHub renders `.drawio` files natively when you navigate to the file.
+![Architecture diagram](architecture.svg)
+
+> Source: [architecture.drawio](architecture.drawio) (open in draw.io to edit)
 
 ## How The App Works
 
