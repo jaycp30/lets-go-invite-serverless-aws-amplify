@@ -248,6 +248,30 @@ ACCEPTANCE_LOCK_SECONDS=60
 
 ## DynamoDB Invite Store
 
+### Why This Table Exists
+
+DynamoDB makes each invitation a server-owned record instead of relying on invitation details sent through a public URL and posted back by the browser. Before this change, the shared URL could contain sender email, message, activity, and date values, and duplicate-email prevention depended on browser `sessionStorage`.
+
+| Problem | Without DynamoDB | With DynamoDB |
+|---|---|---|
+| Duplicate calendar emails | A second browser or cleared session could send again | Lambda records `SENT` and does not send again |
+| Personal data in shared URLs | Invitation and sender data can appear in query parameters | The link contains only `inviteId` |
+| Forged acceptance requests | A caller can submit a different email destination | Lambda sends only from a stored invitation record |
+
+When an invitation is generated, Lambda stores the private details and returns an ID used in the shareable link:
+
+```text
+/invite.html?id=<inviteId>
+```
+
+When the recipient opens that link, Lambda returns only recipient-visible fields. When the recipient clicks **Yes!**, the browser submits only `inviteId`, and Lambda performs the acceptance transition:
+
+```text
+CREATED -> SENDING -> SENT
+```
+
+Only the request that successfully reserves `SENDING` sends the SES calendar email. Later acceptances return that the calendar invite was already sent. DynamoDB is therefore both the invitation store and the server-side duplicate-send guard.
+
 Create a DynamoDB table in the Lambda region with `inviteId` as its partition key:
 
 ```bash
