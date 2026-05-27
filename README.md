@@ -16,15 +16,18 @@ invite_Claude-exercise/
 ├── lambda/
 │   ├── generate.js        # AI generation + SES calendar invite backend
 │   └── package.json
+├── diagram/
+│   ├── architecture.svg   # Architecture diagram (rendered)
+│   └── architecture.drawio  # Architecture diagram (editable source)
 ├── amplify.yml            # Amplify static-site build spec
 └── README.md
 ```
 
 ## Architecture
 
-![Architecture diagram](architecture.svg)
+![Architecture diagram](diagram/architecture.svg)
 
-> Source: [architecture.drawio](architecture.drawio) (open in draw.io to edit)
+> Source: [diagram/architecture.drawio](diagram/architecture.drawio) (open in draw.io to edit)
 
 ## How The App Works
 
@@ -36,6 +39,8 @@ invite_Claude-exercise/
 6. The recipient page requests public display fields by `inviteId`, then the recipient clicks **Yes!**.
 7. `/yes.html` sends only `inviteId` in its `acceptInvite` request.
 8. Lambda conditionally reserves the first acceptance, sends one `.ics` calendar invite through Amazon SES, and records the invite as `SENT`.
+9. Once that send succeeds, `/yes.html` optionally offers the recipient a copy; only recipients who opt in provide an email address.
+10. Lambda independently reserves and sends at most one recipient calendar copy for that invitation.
 
 ### AI Model Roles
 
@@ -265,7 +270,8 @@ DynamoDB makes each invitation a server-owned record instead of relying on invit
 |---|---|---|
 | Duplicate calendar emails | A second browser or cleared session could send again | Lambda records `SENT` and does not send again |
 | Personal data in shared URLs | Invitation and sender data can appear in query parameters | The link contains only `inviteId` |
-| Forged acceptance requests | A caller can submit a different email destination | Lambda sends only from a stored invitation record |
+| Forged acceptance requests | A caller can change the requester's email destination | Lambda sends the requester copy only from a stored invitation record |
+| Duplicate optional copies | Repeated recipient submissions could send multiple emails | Lambda records one independently locked recipient copy |
 
 When an invitation is generated, Lambda stores the private details and returns an ID used in the shareable link:
 
@@ -281,7 +287,15 @@ CREATED -> SENDING -> SENT
 
 Only the request that successfully reserves `SENDING` sends the SES calendar email. Later acceptances return that the calendar invite was already sent. DynamoDB is therefore both the invitation store and the server-side duplicate-send guard.
 
-Before AI generation or invite creation, Lambda also stores daily usage counters under anonymized source-IP and notification-email fingerprints. Once either fingerprint has generated three invitations in one UTC day, further generation requests receive HTTP `429` until the next UTC day. Since each stored invitation can send at most one email, a mailbox cannot be targeted through this endpoint more than three times per UTC day without changing the destination address.
+After that transition reaches `SENT`, the celebration page offers an optional recipient copy. Choosing not to receive it does not call the API. If the recipient provides an email address, Lambda runs a separate recipient-copy transition:
+
+```text
+unset -> recipient SENDING -> recipient SENT
+```
+
+That optional email uses the same calendar event UID as the requester copy and can be sent at most once per invitation. The email value is accepted only for this explicit optional copy and is stored privately with the invitation record.
+
+Before AI generation or invite creation, Lambda also stores daily usage counters under anonymized source-IP and requester-notification-email fingerprints. Once either fingerprint has generated three invitations in one UTC day, further generation requests receive HTTP `429` until the next UTC day. Each stored invitation can send the requester notification only once; its explicitly requested recipient copy is separately limited to one send for that invitation.
 
 Create a DynamoDB table in the Lambda region with `inviteId` as its partition key:
 
@@ -335,7 +349,7 @@ Grant the Lambda execution role access to the invite table, substituting your AW
 }
 ```
 
-An invite begins as `CREATED`. The first acceptance conditionally changes it to `SENDING`, sends SES email, and changes it to `SENT`; duplicate acceptances do not send again. A clear SES send failure changes it to `FAILED` so it can be retried. The calendar event UID is derived from `inviteId`, limiting duplicate calendar events if an SES success occurs before Lambda can persist `SENT`.
+An invite begins as `CREATED`. The first acceptance conditionally changes it to `SENDING`, sends SES email to the requester, and changes it to `SENT`; duplicate acceptances do not send again. A clear SES send failure changes it to `FAILED` so it can be retried. After requester delivery, the optional recipient copy is protected by its own `recipientInviteStatus` and lock attributes. The calendar event UID is derived from `inviteId`, limiting duplicate calendar events if an SES success occurs before Lambda can persist sent state.
 
 ## SES Calendar Invite Procedure
 
@@ -383,7 +397,7 @@ An invite begins as `CREATED`. The first acceptance conditionally changes it to 
    SES_REGION=ap-northeast-1
    ```
 
-When the recipient clicks **Yes!**, Lambda sends a raw MIME email with a `text/calendar` `.ics` attachment. Calendar apps such as Google Calendar and Outlook can recognize the attachment as an event invite.
+When the recipient clicks **Yes!**, Lambda sends the requester a raw MIME email with a `text/calendar` `.ics` attachment. Once sent, the recipient may optionally request one copy of that event by supplying their email address. Calendar apps such as Google Calendar and Outlook can recognize the attachment as an event invite.
 
 ## API Gateway Setup
 

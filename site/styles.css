@@ -254,6 +254,60 @@ textarea {
 
 .calendar-status.error { color: #9e3f3f; }
 
+.recipient-invite-card {
+  background: var(--card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+  margin: 0 auto;
+  max-width: 390px;
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+
+.recipient-invite-question {
+  font-family: var(--font-display);
+  color: var(--text);
+  font-size: 1.18rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.recipient-invite-copy {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+  margin: 4px 0 18px;
+}
+
+.recipient-invite-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.recipient-invite-btn {
+  flex: 1;
+  margin-top: 0;
+  padding-inline: 12px;
+}
+
+.recipient-invite-form .btn-primary {
+  margin-top: 14px;
+}
+
+.recipient-invite-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-height: 1.25rem;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.recipient-invite-status.success { color: var(--accent); }
+
+.recipient-invite-status.error { color: #9e3f3f; }
+
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
 
 .btn {

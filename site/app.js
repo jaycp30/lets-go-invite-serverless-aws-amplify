@@ -1,4 +1,4 @@
-const APP_VERSION = '20260527-turnstile';
+const APP_VERSION = '20260527-recipient-invite';
 window.UNHINGED_CALENDLY_VERSION = APP_VERSION;
 console.info(`[Unhinged Calendly] app.js ${APP_VERSION}`);
 
@@ -366,6 +366,7 @@ if (document.getElementById('confettiContainer')) {
   injectCSS(FALLBACK_CONFETTI_CSS);
   createConfetti();
   loadCelebrationCSS(inviteId);
+  initializeRecipientInvitePrompt(inviteId);
   notifyCalendarAcceptance(inviteId);
 }
 
@@ -410,12 +411,15 @@ async function notifyCalendarAcceptance(inviteId) {
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
     status.textContent = data.alreadySent
-      ? 'Calendar invite already sent.'
+      ? 'Requester calendar invite already sent.'
       : data.sending
-        ? 'Calendar invite is already being sent.'
-        : 'Calendar invite sent.';
+        ? 'Requester calendar invite is already being sent.'
+        : 'Requester calendar invite sent.';
     status.classList.remove('error');
     status.classList.add('success');
+    if (!data.sending) {
+      showRecipientInvitePrompt();
+    }
   } catch (err) {
     console.error(err);
     status.textContent = err.message
@@ -423,6 +427,80 @@ async function notifyCalendarAcceptance(inviteId) {
       : 'Could not send the calendar invite.';
     status.classList.remove('success');
     status.classList.add('error');
+  }
+}
+
+function initializeRecipientInvitePrompt(inviteId) {
+  const yesButton = document.getElementById('recipientInviteYes');
+  const noButton = document.getElementById('recipientInviteNo');
+  const form = document.getElementById('recipientInviteForm');
+  if (!yesButton || !noButton || !form) return;
+
+  yesButton.addEventListener('click', () => {
+    document.getElementById('recipientInviteActions').hidden = true;
+    form.hidden = false;
+    document.getElementById('recipientEmail').focus();
+  });
+  noButton.addEventListener('click', () => {
+    document.getElementById('recipientInviteCard').hidden = true;
+  });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await sendRecipientInvite(inviteId);
+  });
+}
+
+function showRecipientInvitePrompt() {
+  const card = document.getElementById('recipientInviteCard');
+  if (card) card.hidden = false;
+}
+
+async function sendRecipientInvite(inviteId) {
+  const emailInput = document.getElementById('recipientEmail');
+  const submitButton = document.getElementById('recipientInviteSubmit');
+  const status = document.getElementById('recipientInviteStatus');
+  if (!emailInput || !submitButton || !status) return;
+
+  const recipientEmail = emailInput.value.trim();
+  if (!recipientEmail || !emailInput.checkValidity()) {
+    emailInput.reportValidity();
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
+  status.textContent = '';
+  status.classList.remove('success', 'error');
+
+  try {
+    const res = await fetch(`${API_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'recipientInvite',
+        inviteId,
+        recipientEmail,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    status.textContent = data.alreadySent
+      ? 'Your calendar invite has already been sent.'
+      : data.sending
+        ? 'Your calendar invite is already being sent.'
+        : 'Your calendar invite is on its way!';
+    status.classList.add('success');
+    emailInput.disabled = true;
+    submitButton.hidden = true;
+  } catch (err) {
+    console.error(err);
+    status.textContent = err.message
+      ? `Could not send your invite: ${err.message}`
+      : 'Could not send your invite.';
+    status.classList.add('error');
+    submitButton.disabled = false;
+    submitButton.textContent = 'Send my invite';
   }
 }
 

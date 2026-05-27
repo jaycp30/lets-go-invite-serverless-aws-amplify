@@ -19,11 +19,25 @@
       <div class="gif-container fade-in" style="transition-delay: 100ms">
         <img src="https://media.giphy.com/media/Yz2NW6XR6EvmU4uWpa/giphy.gif" alt="celebration">
       </div>
+      <section class="recipient-invite-card" id="recipientInviteCard" hidden>
+        <p class="recipient-invite-question">Want this calendar invite too?</p>
+        <p class="recipient-invite-copy">Optional. We only need your email if you want a copy.</p>
+        <div class="recipient-invite-actions" id="recipientInviteActions">
+          <button class="btn btn-primary recipient-invite-btn" id="recipientInviteYes" type="button">Yes, send it</button>
+          <button class="btn btn-secondary recipient-invite-btn" id="recipientInviteNo" type="button">No thanks</button>
+        </div>
+        <form class="recipient-invite-form" id="recipientInviteForm" hidden>
+          <label for="recipientEmail">Your email</label>
+          <input type="email" id="recipientEmail" name="recipientEmail" autocomplete="email" placeholder="you@example.com" required>
+          <button class="btn btn-primary" id="recipientInviteSubmit" type="submit">Send my invite</button>
+          <p class="recipient-invite-status" id="recipientInviteStatus" aria-live="polite"></p>
+        </form>
+      </section>
     </div>
   </div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260527-turnstile"></script>
+  <script src="./app.js?v=20260527-recipient-invite"></script>
   <script>
     const obs = new IntersectionObserver((entries) => {
       entries.forEach(e => {

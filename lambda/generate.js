@@ -65,6 +65,19 @@ exports.handler = async (event) => {
       }
     }
 
+    if (type === 'recipientInvite') {
+      try {
+        const result = await sendOptionalRecipientInvite(body.inviteId, body.recipientEmail);
+        return respond(result.statusCode || 200, result.body);
+      } catch (err) {
+        console.error('recipientInvite failed:', err);
+        return respond(500, {
+          ok: false,
+          error: err.message || 'Failed to send recipient calendar invite',
+        });
+      }
+    }
+
     if (type === 'getInvite') {
       const result = await getPublicInvite(body.inviteId);
       return respond(result.statusCode, result.body);
@@ -373,6 +386,105 @@ async function markInviteFailed(inviteId, lockToken, error) {
   }
 }
 
+async function sendOptionalRecipientInvite(inviteId, recipientEmail) {
+  if (!inviteId) {
+    return { statusCode: 400, body: { ok: false, error: 'inviteId is required' } };
+  }
+  const notificationEmail = normalizeEmail(recipientEmail);
+  if (!isValidEmail(notificationEmail)) {
+    return { statusCode: 400, body: { ok: false, error: 'Please enter a valid email address.' } };
+  }
+
+  const invite = await loadInvite(inviteId);
+  if (!invite) {
+    return { statusCode: 404, body: { ok: false, error: 'Invite not found or no longer available.' } };
+  }
+  if (invite.status !== 'SENT') {
+    return { statusCode: 409, body: { ok: false, error: 'The requester calendar invite has not been sent yet.' } };
+  }
+  if (invite.recipientInviteStatus === 'SENT') {
+    return { body: { ok: true, alreadySent: true } };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const lockToken = crypto.randomUUID();
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: INVITE_TABLE_NAME,
+      Key: { inviteId },
+      UpdateExpression:
+        'SET recipientInviteStatus = :sending, recipientInviteLockUntil = :lockUntil, recipientInviteToken = :token, recipientEmail = :email',
+      ConditionExpression:
+        '#status = :sent AND (attribute_not_exists(recipientInviteStatus) OR recipientInviteStatus = :failed OR (recipientInviteStatus = :sending AND recipientInviteLockUntil < :now))',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':sent': 'SENT',
+        ':failed': 'FAILED',
+        ':sending': 'SENDING',
+        ':now': now,
+        ':lockUntil': now + ACCEPTANCE_LOCK_SECONDS,
+        ':token': lockToken,
+        ':email': notificationEmail,
+      },
+    }));
+  } catch (err) {
+    if (err.name !== 'ConditionalCheckFailedException') throw err;
+    const current = await loadInvite(inviteId);
+    if (current?.recipientInviteStatus === 'SENT') {
+      return { body: { ok: true, alreadySent: true } };
+    }
+    return { body: { ok: true, sending: true } };
+  }
+
+  let result;
+  try {
+    result = await sendRecipientCalendarInvite(inviteId, invite, notificationEmail);
+  } catch (err) {
+    await markRecipientInviteFailed(inviteId, lockToken, err);
+    throw err;
+  }
+
+  await markRecipientInviteSent(inviteId, lockToken);
+  return { body: result };
+}
+
+async function markRecipientInviteSent(inviteId, lockToken) {
+  await dynamodb.send(new UpdateCommand({
+    TableName: INVITE_TABLE_NAME,
+    Key: { inviteId },
+    UpdateExpression:
+      'SET recipientInviteStatus = :sent, recipientInviteSentAt = :sentAt REMOVE recipientInviteLockUntil, recipientInviteToken',
+    ConditionExpression: 'recipientInviteStatus = :sending AND recipientInviteToken = :token',
+    ExpressionAttributeValues: {
+      ':sending': 'SENDING',
+      ':sent': 'SENT',
+      ':sentAt': new Date().toISOString(),
+      ':token': lockToken,
+    },
+  }));
+}
+
+async function markRecipientInviteFailed(inviteId, lockToken, error) {
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: INVITE_TABLE_NAME,
+      Key: { inviteId },
+      UpdateExpression:
+        'SET recipientInviteStatus = :failed, recipientInviteFailedAt = :failedAt, recipientInviteFailureReason = :reason REMOVE recipientInviteLockUntil, recipientInviteToken',
+      ConditionExpression: 'recipientInviteStatus = :sending AND recipientInviteToken = :token',
+      ExpressionAttributeValues: {
+        ':sending': 'SENDING',
+        ':failed': 'FAILED',
+        ':failedAt': new Date().toISOString(),
+        ':reason': String(error.message || error).slice(0, 500),
+        ':token': lockToken,
+      },
+    }));
+  } catch (updateError) {
+    console.error('Unable to mark failed recipient invite:', updateError);
+  }
+}
+
 // ── Invite message ────────────────────────────────────────────────────────────
 
 async function generateInviteMessage(name, activity, date, note) {
@@ -432,29 +544,11 @@ async function sendCalendarInvite(inviteId, { senderEmail, recipientName, activi
   }
 
   const tz = timezone || process.env.SES_CALENDAR_TIMEZONE || 'UTC';
-  const startDateTime = normalizeLocalDateTime(date);
-  const endDateTime = addHoursToLocalDateTime(startDateTime, 1);
   const safeRecipient = recipientName || 'Your guest';
-  const uid = `${inviteId}@jaycloud.net`;
   const summary = `${safeRecipient} said yes: ${activity}`;
-  const description = [
-    `${safeRecipient} accepted your invite.`,
-    '',
-    `Activity: ${activity}`,
-    message ? `Invite message: ${message}` : '',
-    '',
-    'Sent by Unhinged Calendly.',
-  ].filter(Boolean).join('\n');
-  const ics = buildCalendarInvite({
-    uid,
-    summary,
-    description,
-    startDateTime,
-    endDateTime,
-    timezone: tz,
-    organizerEmail: fromEmail,
-    attendeeEmail: senderEmail,
-  });
+  const ics = createCalendarAttachment(inviteId, {
+    recipientName, activity, date, timezone: tz, message,
+  }, fromEmail, senderEmail);
 
   const rawMessage = buildRawCalendarEmail({
     fromEmail,
@@ -473,6 +567,67 @@ async function sendCalendarInvite(inviteId, { senderEmail, recipientName, activi
   });
 
   return { ok: true, messageId: result.SendRawEmailResponse?.SendRawEmailResult?.MessageId || result.messageId };
+}
+
+async function sendRecipientCalendarInvite(inviteId, invite, recipientEmail) {
+  const { recipientName, activity, date, timezone, message } = invite;
+  if (!activity || !date) {
+    throw new Error('Stored invite is missing activity or date');
+  }
+
+  const fromEmail = process.env.SES_FROM_EMAIL;
+  const sesRegion = process.env.SES_REGION || process.env.AWS_REGION || 'ap-northeast-1';
+  if (!fromEmail) {
+    throw new Error('SES_FROM_EMAIL env var is not configured');
+  }
+
+  const safeRecipient = recipientName || 'You';
+  const tz = timezone || process.env.SES_CALENDAR_TIMEZONE || 'UTC';
+  const summary = `${safeRecipient} said yes: ${activity}`;
+  const ics = createCalendarAttachment(inviteId, {
+    recipientName, activity, date, timezone: tz, message,
+  }, fromEmail, recipientEmail);
+  const rawMessage = buildRawCalendarEmail({
+    fromEmail,
+    toEmail: recipientEmail,
+    subject: summary,
+    text: `You're in for ${activity}.\n\nYour calendar invite is attached.`,
+    html: `<p>You're in for <strong>${escapeHtml(activity)}</strong>.</p><p>Your calendar invite is attached.</p>`,
+    ics,
+  });
+
+  const result = await sendSesRawEmail({
+    region: sesRegion,
+    fromEmail,
+    toEmail: recipientEmail,
+    rawMessage,
+  });
+
+  return { ok: true, messageId: result.SendRawEmailResponse?.SendRawEmailResult?.MessageId || result.messageId };
+}
+
+function createCalendarAttachment(inviteId, { recipientName, activity, date, timezone, message }, fromEmail, attendeeEmail) {
+  const safeRecipient = recipientName || 'Your guest';
+  const startDateTime = normalizeLocalDateTime(date);
+  const endDateTime = addHoursToLocalDateTime(startDateTime, 1);
+  const description = [
+    `${safeRecipient} accepted your invite.`,
+    '',
+    `Activity: ${activity}`,
+    message ? `Invite message: ${message}` : '',
+    '',
+    'Sent by Unhinged Calendly.',
+  ].filter(Boolean).join('\n');
+  return buildCalendarInvite({
+    uid: `${inviteId}@jaycloud.net`,
+    summary: `${safeRecipient} said yes: ${activity}`,
+    description,
+    startDateTime,
+    endDateTime,
+    timezone,
+    organizerEmail: fromEmail,
+    attendeeEmail,
+  });
 }
 
 async function sendSesRawEmail({ region, fromEmail, toEmail, rawMessage }) {
