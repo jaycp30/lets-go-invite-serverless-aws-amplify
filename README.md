@@ -178,6 +178,18 @@ Lambda configuration changes and Lambda code deployments are separate operations
 
 The DynamoDB invite-store release needs both kinds of update: the table permission and `INVITE_TABLE_NAME` configuration, plus a code upload containing the new DynamoDB behavior and SDK packages.
 
+### Learning Note: API Keys Versus Provider Changes
+
+Changing an API key value is not the same thing as changing the API provider the Lambda calls.
+
+| Change | Lambda code upload required? | Why |
+|---|---:|---|
+| Replace one Anthropic API key with another `platform.claude.com` key | No | The deployed code still calls the same Anthropic API with the same request format |
+| Change a Bedrock API key or Bedrock-related environment variable value | No | The deployed code already knows how to call Bedrock and only reads new configuration values |
+| Move from Anthropic's direct API to Claude on Amazon Bedrock | Yes | Bedrock uses a different AWS SDK client, authentication path, region/model configuration, and request format |
+
+For this project, the original migration to Claude on Amazon Bedrock required backend changes in `lambda/`, including the Bedrock Runtime SDK usage. It did not require frontend changes in `site/`, because the browser still calls the same API Gateway endpoint and Lambda hides the provider-specific implementation details.
+
 ## Lambda Environment Variables
 
 Set these on the `invite-generate` Lambda function:
